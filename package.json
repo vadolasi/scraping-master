@@ -1,0 +1,33 @@
+{
+  "name": "scraping_master",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start:api:dev": "nodemon index.ts",
+    "start:worker:dev": "pm2-dev worker.ts",
+    "start:dev": "concurrently \"pnpm run start:api:dev\" \"pnpm run start:worker:dev\"",
+    "postinstall": "pm2 install typescript"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bullmq": "^3.12.0",
+    "dotenv": "^16.0.3",
+    "hyper-express": "^6.5.9",
+    "pm2": "^5.3.0",
+    "puppeteer": "^19.11.1",
+    "puppeteer-cluster": "^0.23.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-adblocker": "^2.13.6",
+    "puppeteer-extra-plugin-recaptcha": "^3.6.8",
+    "puppeteer-extra-plugin-stealth": "^2.11.2"
+  },
+  "devDependencies": {
+    "@types/bull": "^4.10.0",
+    "concurrently": "^8.0.1",
+    "nodemon": "^2.0.22",
+    "sucrase": "^3.32.0"
+  }
+}
