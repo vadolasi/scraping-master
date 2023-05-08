@@ -8,9 +8,8 @@ const app = new Server()
 
 const connection: ConnectionOptions = {
   host: process.env.REDIS_HOST,
-  port: parseInt(process.env.REDIS_PORT || "6379"),
-  tls: {}
-}
+  port: parseInt(process.env.REDIS_PORT || "6379")
+ }
 
 const queue = new Queue("Scrape", { connection })
 const queueEvents = new QueueEvents("Scrape", { connection })
