@@ -8,6 +8,7 @@
     "start:worker:dev": "pm2-dev worker.ts",
     "start:dev": "concurrently \"pnpm run start:api:dev\" \"pnpm run start:worker:dev\"",
     "start:api": "pm2 start index.ts -i max",
+    "start:worker": "pm2 start worker.ts",
     "postinstall": "pm2 install typescript"
   },
   "keywords": [],
