@@ -7,7 +7,7 @@
     "start:api:dev": "nodemon index.ts",
     "start:worker:dev": "pm2-dev worker.ts",
     "start:dev": "concurrently \"pnpm run start:api:dev\" \"pnpm run start:worker:dev\"",
-    "start:api": "pm2 index.ts -i max",
+    "start:api": "pm2 start index.ts -i max",
     "postinstall": "pm2 install typescript"
   },
   "keywords": [],
