@@ -10,7 +10,20 @@ const connection: ConnectionOptions = {
   host: process.env.REDIS_HOST,
   port: parseInt(process.env.REDIS_PORT || "6379"),
   password: process.env.REDIS_PASSWORD,
-  tls: {}
+  tls: {},
+  connectTimeout: 17000,
+  maxRetriesPerRequest: 4,
+  retryStrategy: (times) => Math.min(times * 30, 1000),
+  // @ts-ignore
+  reconnectOnError: (error) => {
+    const targetErrors = [/READONLY/, /ETIMEDOUT/]
+
+    targetErrors.forEach((targetError) => {
+      if (targetError.test(error.message)) {
+        return true
+      }
+    })
+  }
 }
 
 const queue = new Queue("Scrape", { connection })
