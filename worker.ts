@@ -58,7 +58,7 @@ puppeteer.use(stealth())
     puppeteer,
     puppeteerOptions: {
       args,
-      headless: false,
+      headless: "new",
       devtools: false,
       ignoreHTTPSErrors: true,
       defaultViewport: {
