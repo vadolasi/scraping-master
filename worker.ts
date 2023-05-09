@@ -4,6 +4,8 @@ import stealth from "puppeteer-extra-plugin-stealth"
 import dotenv from "dotenv"
 import { Page } from "puppeteer"
 import { Consumer } from "sqs-consumer"
+import { fetch } from "undici"
+import { SQS } from "@aws-sdk/client-sqs"
 
 dotenv.config()
 
@@ -56,7 +58,7 @@ puppeteer.use(stealth())
     puppeteer,
     puppeteerOptions: {
       args,
-      headless: "new",
+      headless: false,
       devtools: false,
       ignoreHTTPSErrors: true,
       defaultViewport: {
@@ -134,7 +136,7 @@ puppeteer.use(stealth())
         }
 
         clearTimeout(timeout)
-        await fetch(process.env.API_URL!, {
+        await fetch(process.env.WEBHOOK_URL!, {
           method: "POST",
           headers: {
             "Content-Type": "application/json"
@@ -142,13 +144,20 @@ puppeteer.use(stealth())
           body: JSON.stringify({
             id,
             content: await page.content(),
-            sucess: true
+            success: true
           })
         })
       })
 
       cluster.off("taskerror", errorListner)
-    }
+    },
+    sqs: new SQS({
+      region: "sa-east-1",
+      credentials: {
+        accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+        secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
+      }
+    })
   })
 
   const shutdown = async () => {

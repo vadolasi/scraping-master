@@ -27,11 +27,6 @@ app.use(morgan("combined"))
 app.use(express.json())
 app.use(express.urlencoded({ extended: true }))
 
-sqs.sendMessage({
-  QueueUrl: process.env.SQS_URL,
-  MessageBody: "Hello world"
-})
-
 app.get("/", async (req, res) => {
   let { url, selector, javascript, wait, block } = req.query
 
@@ -62,6 +57,7 @@ app.get("/", async (req, res) => {
   const result = await new Promise<{ success: boolean, content: string, error: string }>(resolve => {
     emitter.once(id, resolve)
   })
+  console.log(result)
 
   if (result.success) {
     res.send(result.content)
