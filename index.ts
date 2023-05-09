@@ -1,33 +1,36 @@
 import dotenv from "dotenv"
-import { Queue, ConnectionOptions, QueueEvents } from "bullmq"
-import { Server } from "hyper-express"
+import express from "express"
+import cors from "cors"
+import helmet from "helmet"
+import morgan from "morgan"
+import { SQS } from "@aws-sdk/client-sqs"
+import { EventEmitter } from "events"
+import { randomUUID } from "crypto"
+
+const emitter = new EventEmitter()
 
 dotenv.config()
 
-const app = new Server()
-
-const connection: ConnectionOptions = {
-  host: process.env.REDIS_HOST,
-  port: parseInt(process.env.REDIS_PORT || "6379"),
-  password: process.env.REDIS_PASSWORD,
-  tls: {},
-  connectTimeout: 17000,
-  maxRetriesPerRequest: 4,
-  retryStrategy: (times) => Math.min(times * 30, 1000),
-  // @ts-ignore
-  reconnectOnError: (error) => {
-    const targetErrors = [/READONLY/, /ETIMEDOUT/]
-
-    targetErrors.forEach((targetError) => {
-      if (targetError.test(error.message)) {
-        return true
-      }
-    })
+const sqs = new SQS({
+  region: "sa-east-1",
+  credentials: {
+    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!
   }
-}
+})
 
-const queue = new Queue("Scrape", { connection })
-const queueEvents = new QueueEvents("Scrape", { connection })
+const app = express()
+
+app.use(cors())
+app.use(helmet())
+app.use(morgan("combined"))
+app.use(express.json())
+app.use(express.urlencoded({ extended: true }))
+
+sqs.sendMessage({
+  QueueUrl: process.env.SQS_URL,
+  MessageBody: "Hello world"
+})
 
 app.get("/", async (req, res) => {
   let { url, selector, javascript, wait, block } = req.query
@@ -42,38 +45,41 @@ app.get("/", async (req, res) => {
     return res.status(400).send("Missing url query parameter")
   }
 
-  const job = await queue.add(
-    "scrape",
-    { url, selector, javascript, wait, block },
-    {
-      removeOnComplete: true,
-      removeOnFail: true
-    }
-  )
+  const id = randomUUID()
 
-  const result = await job.waitUntilFinished(queueEvents)
+  await sqs.sendMessage({
+    QueueUrl: process.env.SQS_URL,
+    MessageBody: JSON.stringify({
+      id,
+      url,
+      selector,
+      javascript,
+      wait,
+      block
+    })
+  })
 
-  if (await job.isFailed()) {
-    return res.status(500).send("timeout")
+  const result = await new Promise<{ success: boolean, content: string, error: string }>(resolve => {
+    emitter.once(id, resolve)
+  })
+
+  if (result.success) {
+    res.send(result.content)
+  } else {
+    res.status(500).send(result.error)
   }
-
-  res.send(result)
 })
 
-app.post("/request", async (req, res) => {
-  let { url, body, method, headers } = await req.urlencoded()
+app.post("/webhook", async (req, res) => {
+  const { success, error, content, id } = req.body
 
-  method = method || "GET"
-  headers = headers || {}
+  emitter.emit(id, { success, error, content })
 
-  if (!url) {
-    return res.status(400).send("Missing url query parameter")
-  }
-
-  const job = await queue.add("request", { url, body, method, headers })
-
-  res.send(await job.waitUntilFinished(queueEvents))
+  res.send("ok")
 })
 
-app.listen(3000)
-  .then(() => console.log("Listening on port 3000"))
+const port = parseInt(process.env.PORT || "3000")
+
+app.listen(port, () => {
+  console.log(`Listening on port ${port}`)
+})

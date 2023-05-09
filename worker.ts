@@ -2,33 +2,10 @@ import { Cluster } from "puppeteer-cluster"
 import puppeteer  from "puppeteer-extra"
 import stealth from "puppeteer-extra-plugin-stealth"
 import dotenv from "dotenv"
-import { ConnectionOptions, Worker } from "bullmq"
 import { Page } from "puppeteer"
-import { randomUUID } from "crypto"
+import { Consumer } from "sqs-consumer"
 
 dotenv.config()
-
-const connection: ConnectionOptions = {
-  host: process.env.REDIS_HOST,
-  port: parseInt(process.env.REDIS_PORT || "6379"),
-  password: process.env.REDIS_PASSWORD,
-  tls: {},
-  connectTimeout: 17000,
-  maxRetriesPerRequest: 4,
-  retryStrategy: (times) => Math.min(times * 30, 1000),
-  // @ts-ignore
-  reconnectOnError: (error) => {
-    const targetErrors = [/READONLY/, /ETIMEDOUT/]
-
-    targetErrors.forEach((targetError) => {
-      if (targetError.test(error.message)) {
-        return true
-      }
-    })
-  }
-}
-
-const cache = {} as any
 
 const args = [
   "--autoplay-policy=user-gesture-required",
@@ -70,20 +47,7 @@ const args = [
   "--disable-gpu"
 ]
 
-/*
-puppeteer.use(AdblockerPlugin({
-  interceptResolutionPriority: DEFAULT_INTERCEPT_RESOLUTION_PRIORITY
-}))
-*/
 puppeteer.use(stealth())
-/*
-puppeteer.use(recaptcha({
-  provider: {
-    id: "2captcha",
-    token: process.env.CAPTCHA_API_KEY
-  }
-}))
-*/
 
 ;(async () => {
   const cluster = await Cluster.launch({
@@ -105,13 +69,26 @@ puppeteer.use(recaptcha({
 
   cluster.setMaxListeners(1024)
 
-  const worker = new Worker(
-    "Scrape",
-    async job => {
-      let result = ""
-      const jobId = randomUUID()
+  const worker = Consumer.create({
+    queueUrl: process.env.SQS_URL!,
+    handleMessage: async (message) => {
+      const {
+        id,
+        url,
+        selector,
+        javascript,
+        wait,
+        block
+      } = JSON.parse(message.Body!) as {
+        id: string,
+        url: string,
+        selector?: string,
+        javascript?: string,
+        wait?: string,
+        block: string[]
+      }
 
-      const errorListner = async (error: Error, { id }: { id: string }) => {
+      const errorListner = async (error: Error, { id: jobId }: { id: string }) => {
         if (id === jobId) {
           throw error
         }
@@ -119,79 +96,63 @@ puppeteer.use(recaptcha({
 
       cluster.on("taskerror", errorListner)
 
-      switch (job.name) {
-        case "scrape":
-          const { url, selector, javascript, wait, block } = job.data
-
-          await new Promise(resolve => {
-            cluster.queue({ id: jobId }, async ({ page }: { page: Page }) => {
-              const timeout = setTimeout(async () => {
-                throw new Error("Timeout")
-              }, 150000)
-
-              await page.setRequestInterception(true)
-              page.on("request", async request => {
-                if (block.includes(request.resourceType()) || request.isNavigationRequest() && request.redirectChain().length > 3) {
-                  request.abort()
-                } else {
-                  request.continue()
-                }
-              })
-              await page.goto(url as string, { waitUntil: "networkidle0", timeout: 150000 })
-
-              if (selector) {
-                await page.waitForSelector(selector as string)
-              }
-
-              if (javascript) {
-                await page.evaluate(javascript as string)
-              }
-
-              if (wait) {
-                await page.waitForTimeout(parseInt(wait as string))
-              }
-
-              clearTimeout(timeout)
-              result = await page.content()
-              resolve(undefined)
+      cluster.queue({ id }, async ({ page }: { page: Page }) => {
+        const timeout = setTimeout(async () => {
+          await fetch(process.env.API_URL!, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              id,
+              error: "Timeout",
+              sucess: false
             })
           })
+        }, 150000)
 
-        case "request":
-          const { url: requestUrl, body, method, headers } = job.data
+        await page.setRequestInterception(true)
+        page.on("request", async request => {
+          if (block.includes(request.resourceType()) || request.isNavigationRequest() && request.redirectChain().length > 3) {
+            request.abort()
+          } else {
+            request.continue()
+          }
+        })
+        await page.goto(url as string, { waitUntil: "networkidle0", timeout: 150000 })
 
-          new Promise(resolve => {
-            cluster.queue(async ({ page }: { page: Page }) => {
-              await page.setRequestInterception(true)
+        if (selector) {
+          await page.waitForSelector(selector as string)
+        }
 
-              page.on("request", request => {
-                request.continue({
-                  method: method as string,
-                  postData: body as string,
-                  headers: headers as Record<string, string>
-                })
-              })
+        if (javascript) {
+          await page.evaluate(javascript as string)
+        }
 
-              await page.goto(requestUrl as string, { waitUntil: "networkidle0", timeout: 150000 })
+        if (wait) {
+          await page.waitForTimeout(parseInt(wait as string))
+        }
 
-              result = await page.content()
-              resolve(undefined)
-            })
+        clearTimeout(timeout)
+        await fetch(process.env.API_URL!, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            id,
+            content: await page.content(),
+            sucess: true
           })
-      }
+        })
+      })
 
       cluster.off("taskerror", errorListner)
-
-      return result
-    },
-    {
-      connection,
-      concurrency: 18
     }
-  )
+  })
 
   const shutdown = async () => {
-    await worker.close()
+    worker.stop()
     await cluster.idle()
     await cluster.close()
     process.exit(0)
@@ -201,4 +162,5 @@ puppeteer.use(recaptcha({
   process.on("SIGINT", shutdown)
 
   console.log("Worker is listening for jobs")
+  worker.start()
 })()
